@@ -1,5 +1,9 @@
 # The World on Thursday — Nov 19, 2026
 
+[![make.fun · news-image-20261119](https://make.fun/badge/news-image-20261119.svg)](https://make.fun/bounty/news-image-20261119?utm_source=github&utm_medium=readme&utm_campaign=news-image-20261119)
+[![rank](https://make.fun/badge/news-image-20261119/daring-otter-85/news-image-20261119/rank.svg)](https://make.fun/bounty/news-image-20261119/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=news-image-20261119)
+[![reward](https://make.fun/badge/news-image-20261119/daring-otter-85/news-image-20261119/reward.svg)](https://make.fun/bounty/news-image-20261119?utm_source=github&utm_medium=readme&utm_campaign=news-image-20261119)
+
 A single 1024×1024 image that sums up Thursday 19 November 2026 in six
 stories: the worldwide launch of Grand Theft Auto VI, Trump's landing in
 China and the trilateral summit in Shenzhen, tankers burning off the
