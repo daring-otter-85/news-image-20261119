@@ -1,247 +1,201 @@
 #!/usr/bin/env python3
-"""Draw the news poster for Thursday, November 19, 2026.
+"""One-image world-news poster for Thursday 19 November 2026.
 
-A one-image summary of the day: a dated masthead and six panels, each
-with a category tag, a small drawn icon, a bold headline and one short
-factual line.  Drawn entirely with Pillow so every word stays crisp.
-Running this file writes entry.png next to it.
+Builds a 1024x1024 PNG with Pillow only: a masthead, then six
+story tiles in a 2x3 grid. Every tile carries a tag, a headline,
+one factual line and a small hand-drawn geometric glyph.
 """
 
 import math
-from pathlib import Path
-
+import os
 from PIL import Image, ImageDraw, ImageFont
 
-HERE = Path(__file__).resolve().parent
-
-W, H = 1024, 1024
-PAPER = (247, 243, 234)
-INK = (24, 28, 38)
-MUTED = (96, 102, 112)
-NAVY = (16, 34, 64)
-RED = (178, 34, 44)
-
+SIDE = 1024
 BOLD = "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf"
-REG = "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf"
+PLAIN = "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf"
+
+PAPER = (247, 242, 233)
+INK = (28, 40, 48)
+MUTED = (96, 104, 102)
+BAND = (16, 58, 52)
+BAND_INK = (247, 242, 233)
+GOLD = (198, 142, 38)
 
 
-def font(path, size):
-    return ImageFont.truetype(path, size)
+def load_fonts():
+    """Return (bold, regular) font factories sized on demand."""
+    def bold(px):
+        try:
+            return ImageFont.truetype(BOLD, px)
+        except OSError:
+            return ImageFont.load_default()
+
+    def regular(px):
+        try:
+            return ImageFont.truetype(PLAIN, px)
+        except OSError:
+            return ImageFont.load_default()
+
+    return bold, regular
 
 
-F_KICKER = font(BOLD, 25)
-F_TITLE = font(BOLD, 52)
-F_SUB = font(REG, 24)
-F_TAG = font(BOLD, 19)
-F_HEAD = font(BOLD, 29)
-F_DESC = font(REG, 21)
-F_FOOT = font(REG, 19)
-
-
-def wrap(draw, text, fnt, max_width):
+def wrap_line(draw, text, font, width):
+    """Greedy word wrap returning a list of lines fitting `width`."""
     words = text.split()
-    lines, cur = [], ""
+    lines, current = [], ""
     for word in words:
-        trial = word if not cur else cur + " " + word
-        if draw.textlength(trial, font=fnt) <= max_width:
-            cur = trial
+        trial = f"{current} {word}".strip()
+        if draw.textlength(trial, font=font) <= width:
+            current = trial
         else:
-            if cur:
-                lines.append(cur)
-            cur = word
-    if cur:
-        lines.append(cur)
+            if current:
+                lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
     return lines
 
 
-# ---------------------------------------------------------------- icons
-def icon_missile(d, x, y, s, color):
-    d.polygon([(x + s * 0.5, y), (x + s * 0.72, y + s * 0.34),
-               (x + s * 0.62, y + s * 0.78), (x + s * 0.38, y + s * 0.78),
-               (x + s * 0.28, y + s * 0.34)], fill=color)
-    d.polygon([(x + s * 0.38, y + s * 0.78), (x + s * 0.62, y + s * 0.78),
-               (x + s * 0.5, y + s)], fill=(240, 140, 40))
-    d.ellipse([x + s * 0.42, y + s * 0.3, x + s * 0.58, y + s * 0.46],
-              fill=(255, 255, 255))
+def draw_glyph(draw, kind, cx, cy, r, colour):
+    """Draw a small geometric icon centred at (cx, cy)."""
+    if kind == "games":
+        # gamepad: rounded body + d-pad + two buttons
+        draw.rounded_rectangle([cx - r, cy - r * 0.55, cx + r, cy + r * 0.55],
+                               radius=r * 0.5, outline=colour, width=4)
+        draw.line([cx - r * 0.62, cy, cx - r * 0.28, cy], fill=colour, width=4)
+        draw.line([cx - r * 0.45, cy - r * 0.17, cx - r * 0.45, cy + r * 0.17],
+                  fill=colour, width=4)
+        draw.ellipse([cx + r * 0.30, cy - r * 0.30, cx + r * 0.52, cy - r * 0.08],
+                     fill=colour)
+        draw.ellipse([cx + r * 0.58, cy + r * 0.08, cx + r * 0.80, cy + r * 0.30],
+                     fill=colour)
+    elif kind == "summit":
+        # three peaks meeting: triangles of different heights
+        for i, h in enumerate((0.9, 1.25, 0.75)):
+            x0 = cx - r + i * r * 0.66
+            draw.polygon([(x0, cy + r * 0.5), (x0 + r * 0.33, cy - r * h * 0.5),
+                          (x0 + r * 0.66, cy + r * 0.5)], outline=colour, width=4)
+        draw.line([cx - r, cy + r * 0.62, cx + r, cy + r * 0.62], fill=colour, width=4)
+    elif kind == "hormuz":
+        # flame above two wave strokes
+        draw.polygon([(cx, cy - r), (cx + r * 0.55, cy + r * 0.1),
+                      (cx + r * 0.15, cy + r * 0.45), (cx - r * 0.15, cy + r * 0.45),
+                      (cx - r * 0.55, cy + r * 0.1)], outline=colour, width=4)
+        for dy in (0.62, 0.85):
+            draw.arc([cx - r, cy + r * dy - 8, cx + r, cy + r * dy + 8],
+                     start=200, end=340, fill=colour, width=4)
+    elif kind == "space":
+        # four-point star inside a tilted orbit ring
+        draw.polygon([(cx, cy - r), (cx + r * 0.22, cy - r * 0.22),
+                      (cx + r, cy), (cx + r * 0.22, cy + r * 0.22),
+                      (cx, cy + r), (cx - r * 0.22, cy + r * 0.22),
+                      (cx - r, cy), (cx - r * 0.22, cy - r * 0.22)], fill=colour)
+        draw.ellipse([cx - r * 1.15, cy - r * 0.45, cx + r * 1.15, cy + r * 0.45],
+                     outline=colour, width=3)
+    elif kind == "europe":
+        # ring of small stars around a coin disc
+        draw.ellipse([cx - r * 0.45, cy - r * 0.45, cx + r * 0.45, cy + r * 0.45],
+                     outline=colour, width=4)
+        for k in range(8):
+            ang = math.pi * 2 * k / 8 - math.pi / 2
+            sx = cx + r * 0.85 * math.cos(ang)
+            sy = cy + r * 0.85 * math.sin(ang)
+            draw.ellipse([sx - 3, sy - 3, sx + 3, sy + 3], fill=colour)
+    elif kind == "culture":
+        # sunflower: centre disc plus eight petal spokes
+        for k in range(8):
+            ang = math.pi * 2 * k / 8
+            x1 = cx + r * 0.45 * math.cos(ang)
+            y1 = cy + r * 0.45 * math.sin(ang)
+            x2 = cx + r * 0.95 * math.cos(ang)
+            y2 = cy + r * 0.95 * math.sin(ang)
+            draw.line([x1, y1, x2, y2], fill=colour, width=6)
+        draw.ellipse([cx - r * 0.32, cy - r * 0.32, cx + r * 0.32, cy + r * 0.32],
+                     fill=colour)
 
 
-def icon_globe(d, x, y, s, color):
-    d.ellipse([x + s * 0.08, y + s * 0.08, x + s * 0.92, y + s * 0.92],
-              outline=color, width=6)
-    d.ellipse([x + s * 0.34, y + s * 0.08, x + s * 0.66, y + s * 0.92],
-              outline=color, width=4)
-    d.line([x + s * 0.1, y + s * 0.38, x + s * 0.9, y + s * 0.38],
-           fill=color, width=4)
-    d.line([x + s * 0.1, y + s * 0.64, x + s * 0.9, y + s * 0.64],
-           fill=color, width=4)
-
-
-def icon_gamepad(d, x, y, s, color):
-    dark = (16, 34, 64)
-    d.rounded_rectangle([x + s * 0.06, y + s * 0.28, x + s * 0.94, y + s * 0.8],
-                        radius=12, fill=color)
-    d.rectangle([x + s * 0.2, y + s * 0.47, x + s * 0.36, y + s * 0.57],
-                fill=dark)
-    d.rectangle([x + s * 0.26, y + s * 0.42, x + s * 0.3, y + s * 0.62],
-                fill=dark)
-    d.ellipse([x + s * 0.62, y + s * 0.4, x + s * 0.7, y + s * 0.48],
-              fill=dark)
-    d.ellipse([x + s * 0.74, y + s * 0.4, x + s * 0.82, y + s * 0.48],
-              fill=dark)
-    d.ellipse([x + s * 0.68, y + s * 0.54, x + s * 0.76, y + s * 0.62],
-              fill=dark)
-    d.line([x + s * 0.1, y + s * 0.82, x + s * 0.28, y + s * 0.94],
-           fill=color, width=6)
-    d.line([x + s * 0.9, y + s * 0.82, x + s * 0.72, y + s * 0.94],
-           fill=color, width=6)
-
-
-def icon_rocket(d, x, y, s, color):
-    d.polygon([(x + s * 0.5, y + s * 0.04), (x + s * 0.68, y + s * 0.36),
-               (x + s * 0.62, y + s * 0.66), (x + s * 0.38, y + s * 0.66),
-               (x + s * 0.32, y + s * 0.36)], fill=color)
-    d.ellipse([x + s * 0.42, y + s * 0.26, x + s * 0.58, y + s * 0.42],
-              fill=(255, 255, 255))
-    d.polygon([(x + s * 0.38, y + s * 0.6), (x + s * 0.2, y + s * 0.86),
-               (x + s * 0.38, y + s * 0.74)], fill=color)
-    d.polygon([(x + s * 0.62, y + s * 0.6), (x + s * 0.8, y + s * 0.86),
-               (x + s * 0.62, y + s * 0.74)], fill=color)
-    d.polygon([(x + s * 0.42, y + s * 0.68), (x + s * 0.58, y + s * 0.68),
-               (x + s * 0.5, y + s * 0.94)], fill=(240, 140, 40))
-
-
-def icon_bridge(d, x, y, s, color):
-    d.arc([x, y + s * 0.05, x + s, y + s * 0.85], 180, 360, fill=color, width=6)
-    for fx in (0.18, 0.38, 0.62, 0.82):
-        d.line([x + s * fx, y + s * 0.28, x + s * fx, y + s * 0.62],
-               fill=color, width=4)
-    d.line([x, y + s * 0.62, x + s, y + s * 0.62], fill=color, width=7)
-    d.line([x, y + s * 0.8, x + s, y + s * 0.8], fill=(70, 130, 200), width=5)
-    d.line([x, y + s * 0.92, x + s, y + s * 0.92], fill=(70, 130, 200), width=5)
-
-
-def icon_palette(d, x, y, s, color):
-    d.ellipse([x + s * 0.08, y + s * 0.08, x + s * 0.92, y + s * 0.92],
-              fill=color)
-    for (cx, cy), dot in (((0.3, 0.32), (178, 34, 44)),
-                          ((0.58, 0.24), (38, 84, 160)),
-                          ((0.74, 0.46), (24, 120, 74))):
-        d.ellipse([x + s * cx - 7, y + s * cy - 7,
-                   x + s * cx + 7, y + s * cy + 7], fill=dot)
-    d.ellipse([x + s * 0.6, y + s * 0.58, x + s * 0.8, y + s * 0.78],
-              fill=PAPER)
-
-
-ICONS = {
-    "missile": icon_missile,
-    "globe": icon_globe,
-    "gamepad": icon_gamepad,
-    "rocket": icon_rocket,
-    "bridge": icon_bridge,
-    "palette": icon_palette,
-}
-
-PANELS = [
-    {
-        "tag": "GAMES", "color": (112, 62, 168), "icon": "gamepad",
-        "headline": "GTA VI LAUNCHES WORLDWIDE",
-        "desc": "Grand Theft Auto VI launched worldwide to near-perfect "
-                "reviews after a 13-year wait.",
-    },
-    {
-        "tag": "SUMMIT", "color": (38, 84, 160), "icon": "globe",
-        "headline": "TRUMP LANDS IN CHINA",
-        "desc": "Trump landed in China to a rare airport welcome from Xi, "
-                "ahead of a trilateral summit with Putin in Shenzhen.",
-    },
-    {
-        "tag": "HORMUZ", "color": (178, 34, 44), "icon": "missile",
-        "headline": "TANKERS BURN OFF HORMUZ",
-        "desc": "Oil tankers caught fire after hitting mines east of the "
-                "Strait of Hormuz; the U.S. struck Iran's Qeshm Island.",
-    },
-    {
-        "tag": "SPACE", "color": (24, 120, 74), "icon": "rocket",
-        "headline": "VOYAGER 1 REACHES ONE LIGHT-DAY",
-        "desc": "NASA's Voyager 1 became the first human-made object to "
-                "reach one light-day from Earth.",
-    },
-    {
-        "tag": "EUROPE", "color": (70, 96, 140), "icon": "bridge",
-        "headline": "EU PROPOSES \u20ac45\u201349BN UKRAINE LOAN",
-        "desc": "The EU proposed a \u20ac45\u201349 billion loan for Ukraine, "
-                "to be repaid after Russia pays reparations.",
-    },
-    {
-        "tag": "CULTURE", "color": (206, 110, 24), "icon": "palette",
-        "headline": "VAN GOGH SELLS FOR RECORD $190.4M",
-        "desc": "A Van Gogh painting sold for a record $190.4 million "
-                "at auction.",
-    },
+STORIES = [
+    ("games", "GAMES", "Grand Theft Auto VI launches worldwide",
+     "Near-perfect reviews after a 13-year wait.",
+     (176, 62, 48)),
+    ("summit", "SUMMIT", "Trump lands in China to rare Xi welcome",
+     "Xi greets him on the tarmac; summit with Putin in Shenzhen today.",
+     (14, 124, 107)),
+    ("hormuz", "HORMUZ", "Tankers burn on mines off Hormuz",
+     "US strikes Iran's Qeshm Island; fires spread east of the strait.",
+     (178, 96, 24)),
+    ("space", "SPACE", "Voyager 1 reaches one light-day away",
+     "The first human-made object to travel that far from home.",
+     (52, 84, 150)),
+    ("europe", "EUROPE", "EU proposes €45–49bn loan for Ukraine",
+     "To be repaid after Russia pays reparations, under the new plan.",
+     (112, 74, 158)),
+    ("culture", "CULTURE", "Van Gogh sells for a record $190.4M",
+     "The auction price sets a new high for the artist's work.",
+     (198, 142, 38)),
 ]
 
 
-def draw_panel(d, x, y, w, h, panel):
-    color = panel["color"]
-    d.rounded_rectangle([x, y, x + w, y + h], radius=14, fill=(255, 255, 255),
-                        outline=(210, 204, 190), width=2)
-    d.rounded_rectangle([x, y, x + w, y + 40], radius=14, fill=color)
-    d.rectangle([x, y + 26, x + w, y + 40], fill=color)
-    d.text((x + 16, y + 8), panel["tag"], font=F_TAG, fill=(255, 255, 255))
-    bx, by, bs = x + 16, y + 56, 84
-    d.rounded_rectangle([bx, by, bx + bs, by + bs], radius=12, fill=color)
-    inner = Image.new("RGBA", (bs, bs), (0, 0, 0, 0))
-    idraw = ImageDraw.Draw(inner)
-    ICONS[panel["icon"]](idraw, 10, 10, bs - 20, (255, 255, 255))
-    tx = x + 116
-    head_lines = wrap(d, panel["headline"], F_HEAD, x + w - tx - 14)
-    hy = y + 54
-    for line in head_lines[:2]:
-        d.text((tx, hy), line, font=F_HEAD, fill=INK)
-        hy += 36
-    desc_lines = wrap(d, panel["desc"], F_DESC, w - 32)
-    dy = y + 152
-    for line in desc_lines[:3]:
-        d.text((x + 16, dy), line, font=F_DESC, fill=MUTED)
-        dy += 28
-    return inner, (bx, by)
+def build_poster(path):
+    bold, regular = load_fonts()
+    canvas = Image.new("RGB", (SIDE, SIDE), PAPER)
+    draw = ImageDraw.Draw(canvas)
 
+    # --- masthead band ---
+    draw.rectangle([0, 0, SIDE, 148], fill=BAND)
+    draw.rectangle([0, 148, SIDE, 154], fill=GOLD)
+    title_font = bold(52)
+    draw.text((28, 22), "THE WORLD ON THURSDAY", font=title_font, fill=BAND_INK)
+    date_font = bold(30)
+    date_text = "NOV 19, 2026"
+    draw.text((SIDE - 28 - draw.textlength(date_text, font=date_font), 30),
+              date_text, font=date_font, fill=GOLD)
+    sub_font = regular(26)
+    draw.text((28, 96),
+              "Six stories that defined the day — in one picture.",
+              font=sub_font, fill=(214, 224, 220))
 
-def main():
-    img = Image.new("RGB", (W, H), PAPER)
-    d = ImageDraw.Draw(img)
+    # --- six tiles, 2 columns x 3 rows ---
+    margin, gap = 28, 20
+    top, bottom = 176, 996
+    tile_w = (SIDE - margin * 2 - gap) // 2
+    tile_h = (bottom - top - gap * 2) // 3
+    tag_font = bold(21)
+    head_font = bold(32)
+    body_font = regular(24)
 
-    d.rectangle([0, 0, W, 148], fill=NAVY)
-    d.rectangle([0, 148, W, 156], fill=RED)
-    d.text((36, 18), "THE WORLD IN ONE PICTURE  \u00b7  DAILY NEWS POSTER",
-           font=F_KICKER, fill=(250, 205, 90))
-    d.text((36, 50), "THURSDAY, NOVEMBER 19, 2026", font=F_TITLE,
-           fill=(255, 255, 255))
-    d.text((36, 116), "The six stories that defined the day, at a glance",
-           font=F_SUB, fill=(190, 202, 224))
+    for idx, (kind, tag, headline, fact, accent) in enumerate(STORIES):
+        col, row = idx % 2, idx // 2
+        x0 = margin + col * (tile_w + gap)
+        y0 = top + row * (tile_h + gap)
+        x1, y1 = x0 + tile_w, y0 + tile_h
 
-    margin, gap = 28, 16
-    pw = (W - margin * 2 - gap) // 2
-    ph = 258
-    top = 172
-    overlays = []
-    for i, panel in enumerate(PANELS):
-        col, row = i % 2, i // 2
-        x = margin + col * (pw + gap)
-        y = top + row * (ph + gap)
-        inner, pos = draw_panel(d, x, y, pw, ph, panel)
-        overlays.append((inner, pos))
-    for inner, pos in overlays:
-        img.paste(inner, pos, inner)
+        draw.rounded_rectangle([x0, y0, x1, y1], radius=18, fill=(255, 255, 255))
+        draw.rounded_rectangle([x0, y0, x1, y1], radius=18, outline=(214, 206, 192), width=2)
+        draw.rectangle([x0 + 18, y0, x0 + 26, y0 + 52], fill=accent)
 
-    d.text((36, H - 34),
-           "Compiled from Reuters, AP and AFP reporting.",
-           font=F_FOOT, fill=MUTED)
+        # tag + glyph share the top row
+        draw.text((x0 + 44, y0 + 20), tag, font=tag_font, fill=accent)
+        draw_glyph(draw, kind, x1 - 52, y0 + 52, 30, accent)
 
-    out = HERE / "entry.png"
-    img.save(out, format="PNG", optimize=True)
-    print("wrote", out, out.stat().st_size, "bytes")
+        # headline, wrapped to at most two lines
+        head_lines = wrap_line(draw, headline, head_font, tile_w - 56)[:2]
+        hy = y0 + 62
+        for line in head_lines:
+            draw.text((x0 + 28, hy), line, font=head_font, fill=INK)
+            hy += 38
+
+        # factual line, wrapped to at most three lines
+        fact_lines = wrap_line(draw, fact, body_font, tile_w - 56)[:3]
+        fy = y0 + tile_h - 28 - len(fact_lines) * 30
+        for line in fact_lines:
+            draw.text((x0 + 28, fy), line, font=body_font, fill=MUTED)
+            fy += 30
+
+    canvas.save(path, format="PNG", optimize=True)
 
 
 if __name__ == "__main__":
-    main()
+    target = os.path.join(os.path.dirname(os.path.abspath(__file__)), "entry.png")
+    build_poster(target)
+    print(f"wrote {target}")
